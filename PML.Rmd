@@ -1,0 +1,187 @@
+---
+title: "Practical Machine Learning"
+author: "Mahi Aminu Aliyu"
+date: '`r Sys.Date()`'
+output:
+  pdf_document: default
+  html_document: default
+  md_documents: default
+---
+# Human Activity Recognition
+
+The goal of this project is to qunatify how well people perform activity using data from accelerometers on the belt, forearm, arm and dumbbel of 6 participants.  
+The accelerometers masure the participants perform 5 activities (sitting-down, standing-up, standing, walking, and sitting) as A, B, C, D, and E in the classe variable.  
+
+---
+
+```{r message = FALSE, echo = F}
+library(dplyr); library(caret); library(ggplot2); require(parallel); require(doParallel); require(dplyr)
+set.seed(333)
+```
+
+
+# [Dataset](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har#sbia_paper_section)
+
+The dataset proposed with 5 classe (sitting-down, standing-up, standing, walking, and sitting) collected on 8 hours of activities of 4 healthy subjects. We also established a baseline performance index.
+
+>Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+### Reading dataset
+```{r}
+if(!file.exists("dataset/pml-training.csv")){
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+              destfile = "dataset/pml-training.csv")
+}
+
+if(!file.exists("dataset/pml-testing.csv")){
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+              destfile = "dataset/pml-testing.csv")
+}
+
+pml <- read.csv("dataset/pml-training.csv")
+
+```
+
+## Data
+
+```{r}
+dim(pml)
+```
+The dataset has 19622 rows and 160 variables.
+
+
+### Removing NAs and empty characters
+
+Here we get the percentage of variables that are Na or empty characters and discard them
+
+First thing first we check for NAs in the data set
+```{r}
+table(colSums(is.na(pml)))
+```
+is.na gets the total NAs an non NAs for each column 
+93 column are non missing values will 67 columns have 19216 missing values suggest 
+
+Base on the table we can observe that columns with zero NAs are 93 and
+Column with 19216 NAs are 67 we can also noticed that there is uniform NAs
+in each column with NAs, with total rows of 19622 we got 406 NAs
+That's we have only 2% of non NAs in columns with NAs We will discard the tables because we wont get anything meaningful.
+
+
+
+```{r}
+table(colSums(pml == ""))
+```
+33 columns have 19216 for empty strings only 60 columns
+
+there we discard all the missing columns and empty columns
+```{r}
+#discard empty strings and NAs
+
+df <-  pml[, colSums(is.na(pml)) == 0]
+
+df <- df[,colSums(df == "") == 0] 
+```
+
+```{r}
+
+1 - (length(names(df)) / length(names(pml)))
+
+```
+now we can see that 62.5 of the data are either Nas of Empty characters
+
+
+```{r}
+dim(df)
+```
+we are now down to 60 columns
+
+For this prediction task variables such as X, timestamp, window and user_name
+are irrelevant to our aim, an we will prepare to use data that are closely related to out outcome.
+
+```{r}
+df <- df[, -c(which(grepl("^X|timestamp|window|user_name", names(df))))]
+dim(df)
+# And lastly 53 columns
+```
+
+## preProcessing
+
+The outcome will be classe (i.e the manner of activities)
+```{r}
+df$classe <- as.factor(df$classe)
+df[, -53] <- lapply(df[, -53], as.numeric)
+sam <- sample(nrow(pml), 500)
+
+df <- df[sam ,]
+
+```
+
+
+# Considering the enough data set we have, lets slice the training data set to subTrain and validation set
+
+```{r}
+
+subTrain <- createDataPartition(y = df$classe, p = 0.60, list = F)
+
+subTraining <- df[subTrain, ]
+validation <- df[-subTrain, ]
+```
+
+#tuning parameteres
+
+```{r}
+fitControl <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 2,
+  classProbs = T,
+  verboseIter = F
+)
+```
+
+
+# Training
+
+we are going to use three classification algorithms for namely:
+  1. Stochastic Gradient Boosting Machine
+  2. Random Forest, and
+  3. Support Vector Machine
+  
+```{r}
+modFitGBM <- train(classe ~ ., method = "gbm", data = subTraining,
+                   trControl = fitControl,
+                   verbose = F
+)
+modFitFor <- train(classe ~., method = "rf", data = subTraining,
+                   trContol = fitControl
+)
+
+modFitSVM <- train(classe ~., method = "svmLinear2", data = subTraining,
+                  trControl = fitControl
+)
+```
+
+
+
+# Prediction
+Using the validation dataset will predict and evaluate our algorithm 
+
+```{r}
+preLogit <- predict(modFitGBM, newdata = validation)
+preFor <- predict(modFitFor, newdata = validation)
+preSVM <- predict(modFitSVM,newdata = validation)
+```
+
+# Confusion Matrix
+
+```{r}
+confusionMatrix(preLogit, validation$classe)
+confusionMatrix(preFor, validation$classe)
+confusionMatrix(preSVM, validation$classe)
+
+```
+
+
+
+
+
