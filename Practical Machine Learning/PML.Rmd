@@ -77,6 +77,7 @@ there we discard all the missing columns and empty columns
 ```{r}
 #discard empty strings and NAs
 
+
 df <-  pml[, colSums(is.na(pml)) == 0]
 
 df <- df[,colSums(df == "") == 0] 
@@ -107,25 +108,43 @@ dim(df)
 ## preProcessing
 
 The outcome will be classe (i.e the manner of activities)
-```{r}
-df$classe <- as.factor(df$classe)
-df[, -53] <- lapply(df[, -53], as.numeric)
-sam <- sample(nrow(pml), 500)
-
-df <- df[sam ,]
-
-```
-
 
 # Considering the enough data set we have, lets slice the training data set to subTrain and validation set
 
 ```{r}
 
-subTrain <- createDataPartition(y = df$classe, p = 0.60, list = F)
+subTrain <- createDataPartition(y = df$classe, p = 0.80, list = F)
 
 subTraining <- df[subTrain, ]
 validation <- df[-subTrain, ]
 ```
+
+
+
+```{r}
+subTraining$classe <- as.factor(subTraining$classe)
+ggplot(df, aes(x = classe)) +
+  stat_count()
+
+#df[, -53] <- lapply(df[, -53], as.numeric)
+
+#sam <- sample(length(nrow(df), 500))
+
+#df <- pml[sam ,]
+
+```
+classe A has more instance than other classe, hence we assign wighths to the imbalance dataset before training.
+We will use inverse class frequencies method to the determine the class weights
+```{r}
+weights <- table(df$classe)
+class_weights <- 1 / weights
+
+class_weights <- class_weights / sum(class_weights)
+
+print("class weights:")
+print(class_weights)
+```
+
 
 #tuning parameteres
 
@@ -133,9 +152,12 @@ validation <- df[-subTrain, ]
 fitControl <- trainControl(
   method = "repeatedcv",
   number = 10,
-  repeats = 2,
+  repeats = 5,
   classProbs = T,
-  verboseIter = F
+  verboseIter = F,
+  allowParallel = T,
+  summaryFunction = multiClassSummary
+
 )
 ```
 
@@ -143,45 +165,89 @@ fitControl <- trainControl(
 # Training
 
 we are going to use three classification algorithms for namely:
-  1. Stochastic Gradient Boosting Machine
-  2. Random Forest, and
-  3. Support Vector Machine
+  1. Stochastic Gradient Boosting Machine: Is a boosted machine learning algorithm
+  2. Random Forest, and: A highly accurate
+  3. Support Vector Machine: base on the linearity 
   
+  
+
 ```{r}
+set.seed(333)
 modFitGBM <- train(classe ~ ., method = "gbm", data = subTraining,
                    trControl = fitControl,
                    verbose = F
+
 )
+modFitGBM$results
+```
+The models suggest we will get the best accuracy using interaction.depth of 3 and n.trees of 150 while shrinkage and n.minovsinnode were held at constant 0.1 and 10 respectively.
+```{r}
+set.seed(333)
+
 modFitFor <- train(classe ~., method = "rf", data = subTraining,
-                   trContol = fitControl
+                   trContol = fitControl,
+                   class.weights = class_weights
+
 )
+modFitFor$results
+```
+the final value for mtry was 27 which gives us the optimal model
+
+```{r}
+set.seed(333)
 
 modFitSVM <- train(classe ~., method = "svmLinear2", data = subTraining,
-                  trControl = fitControl
+                  trControl = fitControl,
+                  class.weights = class_weights
+
 )
+modFitSVM$results
+
 ```
+cost = 1 appears to five the optimal model
 
 
+We have not included class weights for gredient boosting machine, because NAs are produce.
 
 # Prediction
 Using the validation dataset will predict and evaluate our algorithm 
 
 ```{r}
+trellis.par.set(caretTheme())
+ggplot(modFitGBM, metric = "Kappa")
+ggplot(modFitFor, metric = "Kappa")
+ggplot(modFitSVM, metric = "Kappa")
+```
+
+
+```{r}
 preLogit <- predict(modFitGBM, newdata = validation)
 preFor <- predict(modFitFor, newdata = validation)
 preSVM <- predict(modFitSVM,newdata = validation)
+
 ```
 
-# Confusion Matrix
+# Confusion Matrics
 
 ```{r}
-confusionMatrix(preLogit, validation$classe)
-confusionMatrix(preFor, validation$classe)
-confusionMatrix(preSVM, validation$classe)
+matricsLogit <- confusionMatrix(preLogit, as.factor(validation$classe))
+matricsFor <- confusionMatrix(preFor, as.factor(validation$classe))
+matricsSVM <- confusionMatrix(preSVM, as.factor(validation$classe))
+
+cat("Metrics for Stochasic Boosting Gredient Machine:")
+print(matricsLogit$table)
+print(round(matricsLogit$overall, 6))
+
+cat("\n")
+
+cat("Metrics for Random Forest:")
+print(matricsFor$table)
+print(round(matricsFor$overall, 6))
+
+cat("\n")
+
+cat("Metrics for Support Vector Machine:")
+print(matricsSVM$table)
+print(round(matricsSVM$overall, 6))
 
 ```
-
-
-
-
-
